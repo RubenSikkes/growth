@@ -1,0 +1,236 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Analyzing growth. First setup the dataframe that will be used. We load the libraries we will use and read in the csv file. 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(reshape2)
+
+growth <- read.csv(file='C:/Users/Ruben.Sikkes/Downloads/Growth.csv', header=T)
+
+# up until colomn 12 because after is for now not needed and exclude empty rows at the bottom
+growth <- growth[3:(which(is.na(growth$Weight))[1]-1),1:12]
+
+# parse date and create a column for days.
+growth$Date <- parse_date_time(growth$Date, "%d/%m/%y")
+growth$Wday <- wday(growth$Date)
+growth$day_since_start <- as.double(difftime(growth$Date, growth$Date[1], units = 'days'))
+head(growth)
+```
+Now for a table view here's an indication of raw and percentual changes measured. How has my composition and raw stats changed?
+
+```{r}
+# composition beginning vs end
+change_df_pct = data.frame("fat_pct" = c(growth$fatpct[1], growth$fatpct[length(growth$day_since_start)]),
+                      "muscle_pct"= c(growth$musclepct[1], growth$musclepct[length(growth$day_since_start)]),
+                      "wat_pct"= c(growth$watpct[1], growth$watpct[length(growth$day_since_start)]))
+change_df_pct[3,] <- change_df_pct[2,]-change_df_pct[1,]
+row.names(change_df_pct) <- c("Before", "Current", "Change")
+head(change_df_pct)
+```
+
+```{r}
+change_df_raw <- data.frame("fatmass" = c(growth$fatmass[1], growth$fatmass[length(growth$day_since_start)]),
+                      "musclemass"= c(growth$musclemass[1], growth$musclemass[length(growth$day_since_start)]),
+                      "watmass"= c(growth$watmass[1], growth$watmass[length(growth$day_since_start)]))
+change_df_raw[3,] <- change_df_raw[2,]-change_df_raw[1,]
+row.names(change_df_raw) <- c("Before", "Current", "Change")
+head(change_df_raw)
+```
+
+Now to plot some basic things as how weight changes over time.
+
+```{r}
+ggplot(growth, aes(x=day_since_start,y=Weight)) + geom_point() + geom_smooth()+ theme_minimal()+
+  labs(x="Day since start", y = "Weight (Kg's)", title="Weight over time", 
+       subtitle= paste("Weigth gained is ", 
+                       round(growth$Weight[length(growth$Weight)]-growth$Weight[1], digits=2),
+                       "KG over ",max(growth$day_since_start),"days"))
+```
+We can see that weight increases and is starting to stagnate.
+
+```{r}
+ggplot(growth, aes(x=day_since_start,y=musclemass)) + 
+  geom_point() +
+  geom_smooth(color='green')+ theme_minimal()+
+  labs(x="Days since start", y = "Musclemass (Kg's)", title="Musclemass over time",
+  subtitle= paste("Muscle gained is ", round(growth$musclemass[length(growth$musclemass)]-growth$musclemass[1], digits=2),
+                       "KG over ",max(growth$day_since_start),"days"))
+```
+Similarly we can see that musclemass increases but stagnates. Idem for fatmass below.
+
+```{r}
+ggplot(growth, aes(x=day_since_start,y=fatmass)) + geom_point() + geom_smooth(color='red')+ theme_minimal()+
+  labs(x="Days since start", y = "Fatt (Kg's)", title="Fatmass over time", subtitle= paste("Fat gained is ", round(growth$fatmass[length(growth$fatmass)]-growth$fatmass[1], digits=2),
+                       "KG over ",max(growth$day_since_start),"days"))
+```
+Now taking into consideration the gain per day of the different variables, we create new variables showing the difference compared to timestep 0 and create a new melted dataframe for plotting. 
+```{r}
+growth$total_gain <- growth$Weight- growth$Weight[2]
+growth$musc_total_gain <- growth$musclemass- growth$musclemass[2]
+growth$fat_total_gain <- growth$fatmass- growth$fatmass[2]
+growth$wat_total_gain <- growth$watmass- growth$watmass[2]
+
+# makes it easier to plot (with correct legend), we take the newly created last 4 variables
+temp <- growth[2:nrow(growth),15:18]
+temp2 <- melt(temp)
+temp2$day <- rep(growth$day_since_start[2:nrow(growth)], times=4)
+
+ggplot(temp2) + 
+  geom_smooth(aes(x=day, y= value, colour=variable), se=F, method = "loess") +
+  labs(title= "Gain over Time", x= "Day", y = "Gain this day (kg)", 
+       subtitle= paste( "Max weight difference since start is " , round(max(growth$total_gain[2:nrow(growth)]),3), "Kg")) +
+  geom_hline(aes(yintercept = 0, linetype="no gain")) +
+  scale_linetype_manual(name = "Reference",values = c(2, 2)) +
+  theme_minimal()
+```
+
+Now looking more specifically at weight change per day we get the following graph. 
+```{r}
+day_length= length(growth$Date)
+dd_sub = growth[2:day_length,c(8,10,12)]
+day_length= length(growth$Date)
+dd = melt(dd_sub)
+
+dd$day <- rep(growth$day[2:day_length], times=3)
+
+ggplot(dd) + 
+  geom_smooth(aes(x=day, y= value, colour=variable), se=F) +
+  labs(title= "Gain per day", x= "Day", y = "Gain this day (kg)") +
+  geom_hline(aes(yintercept = 0, linetype="no gain")) +
+  scale_linetype_manual(name = "Reference",values = c(2, 2)) +
+  theme_minimal()
+```
+We quickly notice that smoothed gain has been good untill around day 65. After day 65 i seem to be showing losses. Good though is that most extreme losses are water and not muscle!
+
+Side question: is there a difference in day of the week and gain?
+```{r}
+growth%>% group_by(Wday) %>% summarize(sum= sum(muscgain)) 
+
+```
+```{r}
+growth%>% group_by(Wday) %>% summarize(summed_gain= sum(muscgain)) %>% ggplot() + 
+  geom_col(aes(x=Wday, y= summed_gain, fill=summed_gain))+
+  scale_fill_gradient(low ="red", high= "green")+ theme_minimal() + 
+  labs(x= "Day of the Week", y = "Summed Gain", title="Muscle Gain per Day of the Week")+
+  xlim(labels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))
+```
+So sunday is the day that really fucks me over. Which makes sense because it is typically the day after I go drinking. Wednesday on the other hand is normally the day after which I have not gone to the gym for 2 days. So maybe this hints that muscle growth only works 2 days after a workout?
+
+
+Next: how will my weight change the next 14 days? We use a simple regression model based on weight and time. 
+
+```{r}
+# create the model which we will use 
+fit <- lm(Weight~poly(day_since_start,1)+ poly(day_since_start,2),data=growth)
+
+#summary(fit) # display model results if you want
+
+# Create a dataframe for prediction 
+new_x <- as.data.frame(day_since_start<- max((growth$day_since_start)+1):(max(growth$day_since_start)+14))
+
+# predict new values
+predicted_weight <- predict(fit, new_x)
+
+# and plot results
+ggplot() + geom_point(aes(x=new_x, y = predicted_weight))+ geom_smooth(aes(x=new_x, y = predicted_weight))+
+  labs(x='Day since start', y='weight', title = 'Predicted Weight for Next 14 Days') + theme_minimal()
+
+#tail(predicted_weight) #  show predicted results if you like
+```
+
+```{r}
+ggplot() + geom_point(aes(x=day_since_start, y = Weight), data=growth) +
+  geom_smooth(aes(x=day_since_start, y = Weight),color='blue', data=growth, method ='loess') +
+  geom_smooth(aes(x=new_x, y = predicted_weight), color='purple')+
+  theme_minimal()+
+  labs(title='Measured and Predicted compared to 85kg goal', x="Day since start", y = "Weight (kg's)")+
+  geom_hline(yintercept=85, color='red')+
+  scale_x_continuous(breaks=seq(0,100,10))
+```
+Based on this figure we can see that I am never reaching 85 based on my current trajectory. Current trajectory indicates my weight will decrease in a couple of days.
+
+So how about the ratio between fatgain and muscle gain? How has my bulk been? We can visualize this by the ratio of Musclegain/Fatgain.
+```{r}
+growth$mf_gain_ratio <- growth$muscgain/ growth$fatgain
+growth %>% filter(muscgain>0) %>% ggplot(aes(x=day_since_start, y= mf_gain_ratio)) +
+  geom_point() +
+  geom_smooth(se=F)+
+  theme_minimal()+
+  scale_y_continuous(breaks = seq(0,3,0.5) )+
+  labs(x="Day since start", y= "muscle to fatgain ratio", title='Muscle to Fatgain ratio over time', subtitle= "based on good= m:f > 1:1, bad worse than 1:2 and average in between")+
+  geom_rect(xmin=0, ymin=0, xmax=max(growth$day_since_start),ymax=0.5, colour="red", fill="red", alpha=0.005)+
+  geom_rect(xmin=0, ymin=1, xmax=max(growth$day_since_start),ymax=3, colour="green", fill="green", alpha=0.005)
+
+```
+Glancing at the results we see that at as hoped, most bulking days score atleast above a 1:1 ratio (above the red box)
+
+Next we show that comparing how many dots are in each box we see that most is in blue (middle) and thereafter green (good).
+```{r}
+bad_pct = sum(growth$mf_gain_ratio<0.5, na.rm=T)/ sum(growth$mf_gain_ratio>0, na.rm=T)
+good_pct = sum(growth$mf_gain_ratio>1, na.rm=T)/ sum(growth$mf_gain_ratio>0, na.rm=T)
+middle_pct= sum(growth$mf_gain_ratio>0.5 & growth$mf_gain_ratio<1, na.rm=T)/ sum(growth$mf_gain_ratio>0, na.rm=T)
+
+gain_df = data.frame('ratio'= c(bad_pct,middle_pct,good_pct), group=c('bad','middle', 'good'))
+
+ggplot(data=gain_df, aes(x=group, y=ratio, fill=group)) + geom_col() +
+  labs(x= "", y='Overall part', title='Muscle to Fat Ratio Group Percentages', subtitle= paste("mean ratio = ", mean(gain_df$ratio))) + theme_minimal()
+```
+Overall my bulk has therefore been quite oke since overall my mean ratio is around 0.36. Which is visualized also in the density plot below.
+For completeness we show a histogram of how often each value is reached. We are on the right side of the vertical line atleast.
+```{r}
+ggplot(data= dd, aes(x=value, fill=variable)) + 
+  geom_density(alpha=0.2) + 
+  geom_vline(xintercept = 0)+
+  theme_minimal() + 
+  labs(x='Gain', title= 'Density for Gain compared to nothing (x=0)')
+```
+
+So whats the relation between eating more and gain? Does having a bigger surplus indeed result in a worse muscle/fat gain ratio? 
+```{r}
+growth %>% filter(muscgain>0) %>% ggplot() + geom_point(aes(x=fatgain, y = muscgain, colour= mf_gain_ratio)) + 
+  geom_smooth(aes(x=fatgain, y = muscgain), colour="black", method ="lm", se=F) + 
+  geom_abline(slope=1, colour= "green", linetype=2) + 
+  geom_abline(slope=0.5, colour="red", linetype=2)+
+  labs(title= "The more you gain the worse the muscle/fat ratio becomes", subtitle="green= 1:1, black= average measured, red= 1:2") + theme_minimal() + scale_colour_gradient(low ="red", high= "green")
+```
+The best points are definately in the left-bottom corner and moving to the right, the black line moves closer to the red dashed line (a bad ratio). Gain should, for an ideal ratio, therefore be minimized. 
+
+
+Lastly an overall indication of physical fitness is the FFMI ratio. For this we use the following formulas:
+Lean Weight = Weight * (1 - (body fat % / 100)
+FFMI = (Lean Weight / 2.2)/ ((Feet * 12.0 + Inches) * 0.0254)2
+Adjusted FFMI = FFMI + ( 6.3 * (1.8 - (Feet * 12.0 + Inches) * 0.0254))
+
+```{r}
+growth$lean_weight <- growth$Weight * (1-(growth$fatpct /100))
+growth$ffmi <- (growth$lean_weight/2.2)/(((6*12)+4)*0.0254)^2*2.20462
+growth$adj_ffmi <- growth$ffmi + (6.1 * (1.8 - ((6 * 12.0 + 4) * 0.0254)))
+
+ggplot(growth, aes(x=day_since_start,y=ffmi)) + geom_point() + geom_smooth()+ theme_minimal()+
+  labs(x="Day since start", y = "ffmi", title="ffmi over time", 
+       subtitle= paste("FFMI Improved is", 
+                       round(growth$ffmi[length(growth$ffmi)]-growth$ffmi[1], digits=2),
+                       "FFMI over ",max(growth$day_since_start),"days"))
+
+ggplot(growth, aes(x=day_since_start,y=adj_ffmi)) + geom_point() + geom_smooth()+ theme_minimal()+
+  labs(x="Day since start", y = "adjusted ffmi)", title="Adjusted FFMI over time", 
+       subtitle= paste("adj_ffmi gained is ", 
+                       round(growth$adj_ffmi[length(growth$adj_ffmi)]-growth$adj_ffmi[1], digits=2),
+                       "adj_ffmi over ",max(growth$day_since_start),"days"))
+```
+
+There fore based on FFMi indexes:  
+* 16 - 17: below average   
+* 18 - 19: average  
+* 20 - 21: above average  
+* 22 - 23: excellent  
+* 23 - 25: superior  
+* 26 - 27: scores considered suspicious but still attainable naturally  
+* 28 - 30: highly unlikely scores to be obtained naturally without steroid usage  
+
+still average since im around 18.2 for normal and even below average for adj_ffmi. 
