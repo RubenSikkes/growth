@@ -9,8 +9,6 @@ Stats were measured every morning after waking up and things measured included:
 - Bonemass
 
 These were filled in a google sheet which calculated muscle,fat and water mass, as well as changes in water,fat,weight and musclemass.
-The sheet can be found at:
-https://docs.google.com/spreadsheets/d/1Dmm2CeOY6gOjQGQ8ul2Ohw0xAPT1ytk8uayO7a4O1N8/edit?usp=sharing
 
 After processing data in RStudio final colnames are;
 "Date" "Weight""fatpct""watpct""musclepct""botgewicht""musclemass""muscgain"       
